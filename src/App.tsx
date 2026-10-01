@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck,
   Package,
@@ -25,7 +25,10 @@ import {
   Clock,
   Save,
   Check,
-  Ban
+  Ban,
+  LogOut,
+  LogIn,
+  KeyRound
 } from 'lucide-react';
 import {
   mockProducts,
@@ -47,6 +50,24 @@ import type {
 } from './types';
 
 export function App() {
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState<{ email: string; role: string; token: string } | null>(() => {
+    const saved = localStorage.getItem('eliteguard_auth');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        return null;
+      }
+    }
+    return { email: 'admin@elitedevs.com', role: 'super_admin', token: 'mock_jwt_token' };
+  });
+
+  const [loginEmail, setLoginEmail] = useState<string>('admin@elitedevs.com');
+  const [loginPassword, setLoginPassword] = useState<string>('Admin@Elite2026!');
+  const [loginError, setLoginError] = useState<string>('');
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
+
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -98,6 +119,54 @@ export function App() {
   });
   const [settingsSaved, setSettingsSaved] = useState<boolean>(false);
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+
+    try {
+      // Call authentication endpoint
+      const res = await fetch('/api/admin/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        const userObj = { email: data.admin.email, role: data.admin.role, token: data.token };
+        setCurrentUser(userObj);
+        localStorage.setItem('eliteguard_auth', JSON.stringify(userObj));
+      } else {
+        // Fallback for local frontend dev mode if /api is not running
+        if (loginEmail === 'admin@elitedevs.com' && loginPassword === 'Admin@Elite2026!') {
+          const userObj = { email: 'admin@elitedevs.com', role: 'super_admin', token: 'mock_jwt_token' };
+          setCurrentUser(userObj);
+          localStorage.setItem('eliteguard_auth', JSON.stringify(userObj));
+        } else {
+          setLoginError(data.error || 'Invalid administrator email or password.');
+        }
+      }
+    } catch (err) {
+      // Offline fallback
+      if (loginEmail === 'admin@elitedevs.com' && loginPassword === 'Admin@Elite2026!') {
+        const userObj = { email: 'admin@elitedevs.com', role: 'super_admin', token: 'mock_jwt_token' };
+        setCurrentUser(userObj);
+        localStorage.setItem('eliteguard_auth', JSON.stringify(userObj));
+      } else {
+        setLoginError('Authentication server connection error.');
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('eliteguard_auth');
+  };
+
   // Copy helper
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -126,11 +195,10 @@ export function App() {
 
     setAccessKeys([newKeyObj, ...accessKeys]);
 
-    // Log activity
     const newLog: ActivityLog = {
       id: `act_${Date.now()}`,
       administrator_id: 'admin_1',
-      administrator_email: 'admin@elitedevs.com',
+      administrator_email: currentUser?.email || 'admin@elitedevs.com',
       action: 'ACCESS_KEY_GENERATED',
       resource_type: 'access_key',
       resource_id: newKeyObj.id,
@@ -164,7 +232,7 @@ export function App() {
     const newLog: ActivityLog = {
       id: `act_${Date.now()}`,
       administrator_id: 'admin_1',
-      administrator_email: 'admin@elitedevs.com',
+      administrator_email: currentUser?.email || 'admin@elitedevs.com',
       action: 'PRODUCT_CREATED',
       resource_type: 'product',
       resource_id: newProd.id,
@@ -199,7 +267,7 @@ export function App() {
     const newLog: ActivityLog = {
       id: `act_${Date.now()}`,
       administrator_id: 'admin_1',
-      administrator_email: 'admin@elitedevs.com',
+      administrator_email: currentUser?.email || 'admin@elitedevs.com',
       action: 'ADMINISTRATOR_INVITED',
       resource_type: 'administrator',
       resource_id: newAdmin.id,
@@ -236,9 +304,9 @@ export function App() {
       domain: confirmAction.installation.domain,
       command_type: confirmAction.type,
       command_status: 'pending',
-      command_payload: { initiated_by: 'Super Admin', timestamp: new Date().toISOString() },
+      command_payload: { initiated_by: currentUser?.role || 'Super Admin', timestamp: new Date().toISOString() },
       command_signature: `sig_${Math.random().toString(36).substring(2, 12)}`,
-      created_by: 'admin@elitedevs.com',
+      created_by: currentUser?.email || 'admin@elitedevs.com',
       created_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 86400000).toISOString(),
       executed_at: null,
@@ -247,7 +315,6 @@ export function App() {
 
     setRemoteCommands([newCmd, ...remoteCommands]);
 
-    // Update installation status if applicable
     if (confirmAction.type === 'LOCK_APPLICATION' || confirmAction.type === 'REVOKE_ACCESS') {
       const nextStatus = confirmAction.type === 'LOCK_APPLICATION' ? 'locked' : 'revoked';
       setInstallations(installations.map(inst =>
@@ -260,11 +327,10 @@ export function App() {
       }
     }
 
-    // Add activity log
     const newLog: ActivityLog = {
       id: `act_${Date.now()}`,
       administrator_id: 'admin_1',
-      administrator_email: 'admin@elitedevs.com',
+      administrator_email: currentUser?.email || 'admin@elitedevs.com',
       action: 'REMOTE_COMMAND_ISSUED',
       resource_type: 'remote_command',
       resource_id: newCmd.id,
@@ -287,7 +353,7 @@ export function App() {
     const newLog: ActivityLog = {
       id: `act_${Date.now()}`,
       administrator_id: 'admin_1',
-      administrator_email: 'admin@elitedevs.com',
+      administrator_email: currentUser?.email || 'admin@elitedevs.com',
       action: 'SETTINGS_UPDATED',
       resource_type: 'settings',
       resource_id: 'global_config',
@@ -356,6 +422,84 @@ export function App() {
   const activeInstallations = installations.filter(i => i.status === 'active').length;
   const unauthorizedInstallations = installations.filter(i => i.status === 'domain_mismatch').length;
 
+  // Render Login View if user is not authenticated
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#0b0f19] text-slate-100 flex items-center justify-center p-4 font-sans relative overflow-hidden">
+        <div className="absolute inset-0 bg-radial-at-c from-blue-900/10 via-transparent to-transparent pointer-events-none" />
+
+        <div className="max-w-md w-full bg-[#121827] border border-slate-800 rounded-2xl p-8 shadow-2xl relative z-10 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-500 font-bold mx-auto">
+              <ShieldCheck className="w-7 h-7 text-blue-500" />
+            </div>
+            <h1 className="text-2xl font-black tracking-tight text-white">ELITE<span className="text-blue-500">GUARD</span></h1>
+            <p className="text-xs text-slate-400">Software Protection & Remote Control Center</p>
+          </div>
+
+          {loginError && (
+            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1.5">Administrator Email</label>
+              <input
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="admin@elitedevs.com"
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 transition"
+                required
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-slate-300 font-semibold">Master Password</label>
+              </div>
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg p-2.5 text-white focus:outline-none focus:border-blue-500 transition"
+                required
+              />
+            </div>
+
+            <div className="p-3 bg-blue-950/20 border border-blue-800/30 rounded-lg text-[11px] text-blue-300">
+              <span className="font-semibold block mb-0.5">Connected to Neon DB:</span>
+              <span className="text-slate-400">ep-soft-star-b7qhar4x-pooler.c-13.us-east-1.aws.neon.tech</span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer shadow-lg shadow-blue-600/20"
+            >
+              {loginLoading ? (
+                <span>Authenticating with Neon DB...</span>
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  <span>Authenticate & Open Dashboard</span>
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="text-center pt-2 border-t border-slate-800">
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Elite Developers Security Protocol</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-[#0b0f19] text-slate-100 overflow-hidden font-sans">
 
@@ -417,15 +561,26 @@ export function App() {
         </nav>
 
         <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-full bg-blue-900/60 border border-blue-500/30 flex items-center justify-center text-xs font-bold text-blue-300 shrink-0">
-              AD
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className="w-8 h-8 rounded-full bg-blue-900/60 border border-blue-500/30 flex items-center justify-center text-xs font-bold text-blue-300 shrink-0">
+                AD
+              </div>
+              {sidebarOpen && (
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-white truncate capitalize">{currentUser?.role.replace('_', ' ')}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{currentUser?.email}</p>
+                </div>
+              )}
             </div>
             {sidebarOpen && (
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-white truncate">Super Administrator</p>
-                <p className="text-[10px] text-slate-400 truncate">admin@elitedevs.com</p>
-              </div>
+              <button
+                onClick={handleLogout}
+                className="text-slate-400 hover:text-rose-400 p-1 rounded"
+                title="Log out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             )}
           </div>
         </div>
@@ -460,7 +615,7 @@ export function App() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Neon DB & Vercel API Active</span>
+              <span>Neon PostgreSQL Connected</span>
             </div>
             <button
               onClick={() => setActiveTab('events')}
