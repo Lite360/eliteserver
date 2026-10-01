@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ShieldCheck,
   Package,
@@ -27,8 +27,7 @@ import {
   Check,
   Ban,
   LogOut,
-  LogIn,
-  KeyRound
+  LogIn
 } from 'lucide-react';
 import {
   mockProducts,
